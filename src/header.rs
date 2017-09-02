@@ -64,12 +64,12 @@ impl str::FromStr for Header {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut attributes: BTreeMap<String, String> = s.split(";")
             .filter_map(|a| {
-                            let attribute: Vec<&str> = a.trim().split("=").collect();
-                            if attribute.len() == 2 {
-                                Some((attribute[0].to_string(), attribute[1].to_string()))
-                            } else {
-                                None
+                            let attribute: Vec<&str> = a.trim().splitn(2, "=").collect();
+                            if attribute.len() < 2 {
+                                return None;
                             }
+
+                            Some((attribute[0].to_string(), attribute[1].to_string()))
                         })
             .collect();
 
@@ -171,4 +171,17 @@ mod tests {
         assert_eq!(raw.parse::<Header>().err(),
                    Some(HeaderParseError::UnknownCriticalAttributes));
     }
+
+    #[test]
+    fn test_from_str_special() {
+        let h: Header = "addr=me@mail.com; type=1; prefer-encrypt=mutual; keydata=my=key="
+            .parse()
+            .expect("failed to parse");
+
+        assert_eq!(h.addr, "me@mail.com");
+        assert_eq!(h.typ, KeyType::OpenPGP);
+        assert_eq!(h.prefer_encrypt, EncryptPreference::Mutual);
+        assert_eq!(h.keydata, "my=key=");
+    }
+
 }
