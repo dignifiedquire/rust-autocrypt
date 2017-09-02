@@ -1,5 +1,7 @@
 use std::{fmt, str};
 
+use errors::{KeyTypeParseError, EncryptPreferenceParseError};
+
 /// What type of key is used.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum KeyType {
@@ -19,8 +21,7 @@ impl fmt::Display for KeyType {
 }
 
 impl str::FromStr for KeyType {
-    // TODO: proper error type
-    type Err = ();
+    type Err = KeyTypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -47,8 +48,7 @@ impl fmt::Display for EncryptPreference {
 }
 
 impl str::FromStr for EncryptPreference {
-    // TODO: proper error type
-    type Err = ();
+    type Err = EncryptPreferenceParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {

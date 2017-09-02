@@ -2,6 +2,7 @@ use std::{fmt, str};
 use std::collections::BTreeMap;
 
 use types::{KeyType, EncryptPreference};
+use errors::HeaderParseError;
 
 /// Represents an Autocrypt Header
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -58,8 +59,7 @@ impl Header {
 }
 
 impl str::FromStr for Header {
-    // TODO: proper error type
-    type Err = ();
+    type Err = HeaderParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut attributes: BTreeMap<String, String> = s.split(";")
@@ -73,36 +73,33 @@ impl str::FromStr for Header {
                         })
             .collect();
 
-        if let Some(addr) = attributes.remove("addr") {
-            if let Some(keydata) = attributes.remove("keydata") {
-                let typ = attributes
-                    .remove("type")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(KeyType::OpenPGP);
+        let addr = attributes
+            .remove("addr")
+            .ok_or(HeaderParseError::MissingCriticalAttribute("addr"))?;
+        let keydata = attributes
+            .remove("keydata")
+            .ok_or(HeaderParseError::MissingCriticalAttribute("keydata"))?;
 
-                let pref = attributes
-                    .remove("prefer-encrypt")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(EncryptPreference::None);
+        let typ = attributes
+            .remove("type")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(KeyType::OpenPGP);
 
-                // Ensure no unkown critical attributes are present
-                let crit_count = attributes
-                    .keys()
-                    .filter(|k| !k.starts_with("_"))
-                    .count();
-                if crit_count > 0 {
-                    return Err(());
-                }
+        let pref = attributes
+            .remove("prefer-encrypt")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(EncryptPreference::None);
 
-                return Ok(Header::new(addr.to_string(),
-                                      typ,
-                                      pref,
-                                      keydata.to_string(),
-                                      attributes));
-            }
+        // Ensure no unkown critical attributes are present
+        let crit_count = attributes
+            .keys()
+            .filter(|k| !k.starts_with("_"))
+            .count();
+        if crit_count > 0 {
+            return Err(HeaderParseError::UnknownCriticalAttributes);
         }
 
-        Err(())
+        return Ok(Header::new(addr.to_string(), typ, pref, keydata.to_string(), attributes));
     }
 }
 
@@ -171,8 +168,7 @@ mod tests {
     #[test]
     fn test_from_str_superflous_critical() {
         let raw = "addr=me@mail.com; _foo=one; _bar=two; other=me; keydata=mykey";
-        raw.parse::<Header>()
-            .expect_err("should have failed to parse");
-
+        assert_eq!(raw.parse::<Header>().err(),
+                   Some(HeaderParseError::UnknownCriticalAttributes));
     }
 }
