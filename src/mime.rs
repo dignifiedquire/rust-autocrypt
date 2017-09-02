@@ -7,19 +7,27 @@ pub fn parse(s: &str) -> email::results::ParsingResult<MimeMessage> {
     MimeMessage::parse(s)
 }
 
-pub fn get_ac_header(mail: MimeMessage) -> Result<Header, HeaderParseError> {
-    let headers = mail.headers
-        .find(&"Autocrypt".to_string())
-        .ok_or(HeaderParseError::MissingHeader)?;
+/// Get the autocrypt header from a parsed email.
+/// Possible outcomes are
+/// - no header, `Ok(None)`
+/// - one header, valid, `Ok(Header{...})`
+/// - one header, invalid, `Err(...)`,
+/// - multiple headers, always invalid, `Err(...)`
+pub fn get_ac_header(mail: MimeMessage) -> Result<Option<Header>, HeaderParseError> {
+    let headers = mail.headers.find(&"Autocrypt".to_string());
+    if let Some(headers) = headers {
+        if headers.len() > 1 {
+            return Err(HeaderParseError::TooManyHeaders);
+        }
 
-    if headers.len() > 1 {
-        return Err(HeaderParseError::TooManyHeaders);
+        let header: String = headers[0]
+            .get_value()
+            .map_err(|_| HeaderParseError::InvalidHeader)?;
+
+        return header.parse().map(|h| Some(h));
     }
-    let header: String = headers[0]
-        .get_value()
-        .map_err(|_| HeaderParseError::InvalidHeader)?;
 
-    header.parse()
+    Ok(None)
 }
 
 
@@ -51,7 +59,18 @@ mod tests {
         let file = get_file("rsa2048-simple.eml");
         let mail = parse(&file).expect("failed to parse");
 
-        let header = get_ac_header(mail).expect("failed to get ac header");
+        let header = get_ac_header(mail)
+            .expect("failed to get ac header")
+            .unwrap();
         assert_eq!(header.addr, "alice@testsuite.autocrypt.org");
+    }
+
+    #[test]
+    fn test_get_ac_header_missing() {
+        let file = get_file("no-autocrypt.eml");
+        let mail = parse(&file).expect("failed to parse");
+
+        let header = get_ac_header(mail).expect("failed to get ac header");
+        assert!(header.is_none());
     }
 }
