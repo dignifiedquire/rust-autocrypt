@@ -1,3 +1,5 @@
+use email;
+
 quick_error! {
     #[derive(PartialEq, Eq, Debug, Clone)]
     pub enum HeaderParseError {
@@ -19,4 +21,17 @@ quick_error! {
 quick_error! {
     #[derive(PartialEq, Eq, Debug, Clone)]
     pub enum EncryptPreferenceParseError {}
+}
+
+quick_error! {
+    #[derive(PartialEq, Eq, Debug, Clone)]
+    pub enum PeerInfoParseError {
+        MimeError {
+            from(email::results::ParsingError)
+        }
+
+        HeaderError {
+            from(HeaderParseError)
+        }
+    }
 }

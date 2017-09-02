@@ -1,6 +1,10 @@
 use email::{self, MimeMessage};
 use header::Header;
 use errors::HeaderParseError;
+use time;
+
+// example: Sat, 17 Dec 2016 10:07:48 +0100
+pub static EMAIL_DATE_FMT: &'static str = "%a, %d %b %Y %T %z";
 
 /// Parse a string as a mime message
 pub fn parse(s: &str) -> email::results::ParsingResult<MimeMessage> {
@@ -13,7 +17,7 @@ pub fn parse(s: &str) -> email::results::ParsingResult<MimeMessage> {
 /// - one header, valid, `Ok(Header{...})`
 /// - one header, invalid, `Err(...)`,
 /// - multiple headers, always invalid, `Err(...)`
-pub fn get_ac_header(mail: MimeMessage) -> Result<Option<Header>, HeaderParseError> {
+pub fn get_ac_header(mail: &MimeMessage) -> Result<Option<Header>, HeaderParseError> {
     let headers = mail.headers.find(&"Autocrypt".to_string());
     if let Some(headers) = headers {
         if headers.len() > 1 {
@@ -30,23 +34,26 @@ pub fn get_ac_header(mail: MimeMessage) -> Result<Option<Header>, HeaderParseErr
     Ok(None)
 }
 
+/// Get the effective date of this email.
+///
+/// If an error occurs while trying to fetch the date from the email
+/// it will fallback to the current time.
+pub fn get_effective_date(mail: &MimeMessage) -> time::Tm {
+    let date = mail.headers.get_value::<String>("Date".to_string());
+    if date.is_err() {
+        return time::now_utc();
+    }
+    // we already checked that we don't have an error, so save to expect
+    match time::strptime(&date.expect("impossible"), EMAIL_DATE_FMT) {
+        Ok(date) => date.to_utc(),
+        Err(_) => time::now_utc(),
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Read;
-
-    fn get_file<S: Into<String>>(filename: S) -> String {
-        let filepath = format!("./test/fixtures/{}", filename.into());
-        let mut f = File::open(filepath).expect("file not found");
-
-        let mut contents = String::new();
-        f.read_to_string(&mut contents)
-            .expect("something went wrong reading the file");
-
-        contents
-    }
+    use helpers::*;
 
     #[test]
     fn test_parse_simple() {
@@ -59,7 +66,7 @@ mod tests {
         let file = get_file("rsa2048-simple.eml");
         let mail = parse(&file).expect("failed to parse");
 
-        let header = get_ac_header(mail)
+        let header = get_ac_header(&mail)
             .expect("failed to get ac header")
             .unwrap();
         assert_eq!(header.addr, "alice@testsuite.autocrypt.org");
@@ -70,7 +77,18 @@ mod tests {
         let file = get_file("no-autocrypt.eml");
         let mail = parse(&file).expect("failed to parse");
 
-        let header = get_ac_header(mail).expect("failed to get ac header");
+        let header = get_ac_header(&mail).expect("failed to get ac header");
         assert!(header.is_none());
+    }
+
+    #[test]
+    fn test_get_effective_time() {
+        let file = get_file("no-autocrypt.eml");
+        let mail = parse(&file).expect("failed to parse");
+
+        assert_eq!(get_effective_date(&mail),
+                   time::strptime("Sat, 17 Dec 2016 10:51:48 +0100", EMAIL_DATE_FMT)
+                       .expect("failed to parse")
+                       .to_utc())
     }
 }

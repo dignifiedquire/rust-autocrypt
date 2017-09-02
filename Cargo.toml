@@ -8,3 +8,4 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 quick-error = "^1.2.0"
 email = "*"
+time = "*"

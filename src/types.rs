@@ -1,5 +1,4 @@
 use std::{fmt, str};
-
 use errors::{KeyTypeParseError, EncryptPreferenceParseError};
 
 /// What type of key is used.
