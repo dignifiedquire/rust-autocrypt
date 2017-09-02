@@ -1,5 +1,5 @@
 use std::{fmt, str};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use types::{KeyType, EncryptPreference};
 
@@ -9,41 +9,51 @@ pub struct Header {
     /// The single recipient email address this header is valid for.
     pub addr: String,
     /// Key type
-    pub typ: Option<KeyType>,
+    pub typ: KeyType,
     /// Encryption preference,
-    pub prefer_encrypt: Option<EncryptPreference>,
+    pub prefer_encrypt: EncryptPreference,
     /// Public Key, encoded in Base64
     pub keydata: String,
+    /// All non default attributes, this is a `BTreeMap` to ensure consistent sorting
+    attributes: BTreeMap<String, String>,
 }
 
 impl fmt::Display for Header {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let mut res = format!("addr={};", self.addr);
-
-        if let Some(ref typ) = self.typ {
-            res = format!("{} type={};", res, typ);
+        let mut rest = String::new();
+        for (key, value) in self.attributes.iter() {
+            rest = format!("{}{}={}; ", rest, key, value);
         }
 
-        if let Some(ref pref) = self.prefer_encrypt {
-            res = format!("{} prefer-encrypt={};", res, pref)
-        }
-
-        write!(fmt, "{} keydata={}", res, self.keydata)
+        write!(fmt,
+               "addr={}; type={}; prefer-encrypt={}; {}keydata={}",
+               self.addr,
+               self.typ,
+               self.prefer_encrypt,
+               rest,
+               self.keydata)
     }
 }
 
 impl Header {
     pub fn new(addr: String,
-               typ: Option<KeyType>,
-               pref: Option<EncryptPreference>,
-               key: String)
+               typ: KeyType,
+               pref: EncryptPreference,
+               key: String,
+               attributes: BTreeMap<String, String>)
                -> Header {
         Header {
             addr: addr,
             typ: typ,
             prefer_encrypt: pref,
             keydata: key,
+            attributes: attributes,
         }
+    }
+
+    /// Get any additional attributes
+    pub fn get<S: Into<String>>(&self, key: S) -> Option<&String> {
+        self.attributes.get(&key.into())
     }
 }
 
@@ -52,26 +62,43 @@ impl str::FromStr for Header {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let attributes: HashMap<&str, &str> = s.split(";")
+        let mut attributes: BTreeMap<String, String> = s.split(";")
             .filter_map(|a| {
                             let attribute: Vec<&str> = a.trim().split("=").collect();
                             if attribute.len() == 2 {
-                                Some((attribute[0], attribute[1]))
+                                Some((attribute[0].to_string(), attribute[1].to_string()))
                             } else {
                                 None
                             }
                         })
             .collect();
 
-        if let Some(addr) = attributes.get("addr") {
-            if let Some(keydata) = attributes.get("keydata") {
-                let typ = attributes.get("type").and_then(|s| s.parse().ok());
+        if let Some(addr) = attributes.remove("addr") {
+            if let Some(keydata) = attributes.remove("keydata") {
+                let typ = attributes
+                    .remove("type")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(KeyType::OpenPGP);
 
                 let pref = attributes
-                    .get("prefer-encrypt")
-                    .and_then(|s| s.parse().ok());
+                    .remove("prefer-encrypt")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(EncryptPreference::None);
 
-                return Ok(Header::new(addr.to_string(), typ, pref, keydata.to_string()));
+                // Ensure no unkown critical attributes are present
+                let crit_count = attributes
+                    .keys()
+                    .filter(|k| !k.starts_with("_"))
+                    .count();
+                if crit_count > 0 {
+                    return Err(());
+                }
+
+                return Ok(Header::new(addr.to_string(),
+                                      typ,
+                                      pref,
+                                      keydata.to_string(),
+                                      attributes));
             }
         }
 
@@ -89,11 +116,12 @@ mod tests {
     }
 
     #[test]
-    fn test_fmt() {
+    fn test_to_string() {
         let h = Header::new("me@mail.com".to_string(),
-                            Some(KeyType::OpenPGP),
-                            Some(EncryptPreference::Mutual),
-                            keydata());
+                            KeyType::OpenPGP,
+                            EncryptPreference::Mutual,
+                            keydata(),
+                            BTreeMap::new());
 
         assert_eq!(h.to_string(),
                    format!("addr=me@mail.com; type=1; prefer-encrypt=mutual; keydata={}",
@@ -107,8 +135,44 @@ mod tests {
             .expect("failed to parse");
 
         assert_eq!(h.addr, "me@mail.com");
-        assert_eq!(h.typ, Some(KeyType::OpenPGP));
-        assert_eq!(h.prefer_encrypt, Some(EncryptPreference::Mutual));
+        assert_eq!(h.typ, KeyType::OpenPGP);
+        assert_eq!(h.prefer_encrypt, EncryptPreference::Mutual);
         assert_eq!(h.keydata, "mykey");
+    }
+
+    #[test]
+    fn test_from_str_minimal() {
+        let h: Header = "addr=me@mail.com; keydata=mykey"
+            .parse()
+            .expect("failed to parse");
+
+        assert_eq!(h.addr, "me@mail.com");
+        assert_eq!(h.typ, KeyType::OpenPGP);
+        assert_eq!(h.prefer_encrypt, EncryptPreference::None);
+        assert_eq!(h.keydata, "mykey");
+    }
+
+    #[test]
+    fn test_from_str_non_critical() {
+        let raw = "addr=me@mail.com; _foo=one; _bar=two; keydata=mykey";
+        let h: Header = raw.parse().expect("failed to parse");
+
+        assert_eq!(h.addr, "me@mail.com");
+        assert_eq!(h.typ, KeyType::OpenPGP);
+        assert_eq!(h.prefer_encrypt, EncryptPreference::None);
+        assert_eq!(h.keydata, "mykey");
+        assert_eq!(h.get("_foo").unwrap(), "one");
+        assert_eq!(h.get("_bar").unwrap(), "two");
+
+        assert_eq!(h.to_string(),
+                   "addr=me@mail.com; type=1; prefer-encrypt=nopreference; _bar=two; _foo=one; keydata=mykey");
+    }
+
+    #[test]
+    fn test_from_str_superflous_critical() {
+        let raw = "addr=me@mail.com; _foo=one; _bar=two; other=me; keydata=mykey";
+        raw.parse::<Header>()
+            .expect_err("should have failed to parse");
+
     }
 }

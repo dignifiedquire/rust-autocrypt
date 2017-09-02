@@ -34,12 +34,14 @@ impl str::FromStr for KeyType {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum EncryptPreference {
     Mutual,
+    None,
 }
 
 impl fmt::Display for EncryptPreference {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             EncryptPreference::Mutual => write!(fmt, "mutual"),
+            EncryptPreference::None => write!(fmt, "nopreference"),
         }
     }
 }
@@ -51,7 +53,7 @@ impl str::FromStr for EncryptPreference {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "mutual" => Ok(EncryptPreference::Mutual),
-            _ => Err(()),
+            _ => Ok(EncryptPreference::None),
         }
     }
 }
