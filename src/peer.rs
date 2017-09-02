@@ -126,6 +126,24 @@ impl PeerInfo {
 
         Recommendation::Available
     }
+
+    /// Get recommendations for sending to all the peers in `tos`.
+    pub fn recommendation_many(&self, tos: Vec<&PeerInfo>) -> Recommendation {
+        let mut recs = tos.iter().map(|to| self.recommendation(to));
+        if recs.any(|rec| rec == Recommendation::Disable) {
+            return Recommendation::Disable;
+        }
+
+        if recs.all(|rec| rec == Recommendation::Encrypt) {
+            return Recommendation::Encrypt;
+        }
+
+        if recs.any(|rec| rec == Recommendation::Discourage) {
+            return Recommendation::Discourage;
+        }
+
+        Recommendation::Available
+    }
 }
 
 #[cfg(test)]
@@ -203,5 +221,23 @@ mod tests {
 
         // reset and older than a month
         assert_eq!(p3.recommendation(&p4), Recommendation::Discourage);
+    }
+
+    #[test]
+    fn test_recommendation_many() {
+        let from = PeerInfo::new(time::now_utc(),
+                                 Some(time::now_utc()),
+                                 Some("mypublickey".to_string()),
+                                 Some(PeerState::Mutual));
+        let to1 = PeerInfo::new(time::now_utc(),
+                                Some(time::now_utc()),
+                                Some("mypublickey".to_string()),
+                                Some(PeerState::Mutual));
+        let to2 = PeerInfo::new(time::now_utc(),
+                                Some(time::now_utc()),
+                                Some("mypublickey".to_string()),
+                                Some(PeerState::Mutual));
+        assert_eq!(from.recommendation_many(vec![&to1, &to2]),
+                   Recommendation::Encrypt);
     }
 }
