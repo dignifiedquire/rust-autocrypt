@@ -1,8 +1,8 @@
-use time;
+use time::{self, Tm, Duration};
 use std::fmt;
 use email::MimeMessage;
 use mime::{get_effective_date, get_ac_header};
-use types::{KeyType, EncryptPreference};
+use types::{KeyType, EncryptPreference, Recommendation};
 use errors::PeerInfoParseError;
 
 /// Internal state kept about a single peer
@@ -10,9 +10,9 @@ use errors::PeerInfoParseError;
 pub struct PeerInfo {
     // required attributes
     /// UTC timestamp of the most recent effective date of all processed messages.
-    pub last_seen: time::Tm,
+    pub last_seen: Tm,
     /// UTC timestamp of the most recent effective date of all processed messages that contained a valid Autocrypt header.
-    pub last_seen_autocrypt: Option<time::Tm>,
+    pub last_seen_autocrypt: Option<Tm>,
     /// The public key of this peer.
     pub public_key: Option<String>,
     /// The current encryption preference.
@@ -43,8 +43,8 @@ impl fmt::Display for PeerState {
 }
 
 impl PeerInfo {
-    pub fn new(seen: time::Tm,
-               seen_ac: Option<time::Tm>,
+    pub fn new(seen: Tm,
+               seen_ac: Option<Tm>,
                key: Option<String>,
                state: Option<PeerState>)
                -> PeerInfo {
@@ -103,6 +103,29 @@ impl PeerInfo {
 
         Ok(())
     }
+
+    /// Get the autocrypt recommendation based on `self` being the from details.
+    pub fn recommendation(&self, to: &PeerInfo) -> Recommendation {
+        if to.public_key.is_none() {
+            return Recommendation::Disable;
+        }
+
+        if self.state == PeerState::Mutual && to.state == PeerState::Mutual {
+            return Recommendation::Encrypt;
+        }
+
+        if to.state == PeerState::Gossip {
+            return Recommendation::Discourage;
+        }
+
+        if let Some(seen_ac) = to.last_seen_autocrypt {
+            if to.state == PeerState::Reset && seen_ac < time::now_utc() - Duration::weeks(4) {
+                return Recommendation::Discourage;
+            }
+        }
+
+        Recommendation::Available
+    }
 }
 
 #[cfg(test)]
@@ -151,5 +174,34 @@ mod tests {
         assert!(p1.last_seen_autocrypt.is_none());
         assert!(p1.public_key.is_none());
         assert_eq!(p1.state, PeerState::Reset);
+    }
+
+    #[test]
+    fn test_recommendation() {
+        let p1 = PeerInfo::new(time::now_utc(), None, None, None);
+        let p2 = PeerInfo::new(time::now_utc(),
+                               None,
+                               Some("mypublickey".to_string()),
+                               Some(PeerState::Gossip));
+        let p3 = PeerInfo::new(time::now_utc(),
+                               None,
+                               Some("pubkey".to_string()),
+                               Some(PeerState::Mutual));
+        let p4 = PeerInfo::new(time::now_utc(),
+                               Some(time::now_utc() - Duration::days(100)),
+                               Some("pubkey".to_string()),
+                               Some(PeerState::Reset));
+
+        // No to public key
+        assert_eq!(p2.recommendation(&p1), Recommendation::Disable);
+
+        // both states are mutual
+        assert_eq!(p3.recommendation(&p3), Recommendation::Encrypt);
+
+        // to state is gossip
+        assert_eq!(p1.recommendation(&p2), Recommendation::Discourage);
+
+        // reset and older than a month
+        assert_eq!(p3.recommendation(&p4), Recommendation::Discourage);
     }
 }

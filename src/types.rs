@@ -56,3 +56,12 @@ impl str::FromStr for EncryptPreference {
         }
     }
 }
+
+/// Possible values for encryption recommendations.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Recommendation {
+    Disable,
+    Discourage,
+    Available,
+    Encrypt,
+}
