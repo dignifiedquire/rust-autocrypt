@@ -183,5 +183,4 @@ mod tests {
         assert_eq!(h.prefer_encrypt, EncryptPreference::Mutual);
         assert_eq!(h.keydata, "my=key=");
     }
-
 }

@@ -6,6 +6,9 @@ quick_error! {
             description(descr)
             display("Missing Critical Attribute: {}", descr)
         }
+        MissingHeader {}
+        TooManyHeaders {}
+        InvalidHeader {}
     }
 }
 quick_error! {
